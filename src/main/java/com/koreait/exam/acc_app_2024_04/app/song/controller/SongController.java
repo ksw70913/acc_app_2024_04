@@ -1,46 +1,90 @@
 package com.koreait.exam.acc_app_2024_04.app.song.controller;
 
-import com.koreait.exam.acc_app_2024_04.app.member.form.JoinForm;
-import com.koreait.exam.acc_app_2024_04.app.member.service.MemberService;
+import com.koreait.exam.acc_app_2024_04.app.member.entity.Member;
+import com.koreait.exam.acc_app_2024_04.app.security.dto.MemberContext;
+import com.koreait.exam.acc_app_2024_04.app.song.entity.Song;
+import com.koreait.exam.acc_app_2024_04.app.song.exception.ActorCanNotModifyException;
+import com.koreait.exam.acc_app_2024_04.app.song.exception.ActorCanNotSeeException;
+import com.koreait.exam.acc_app_2024_04.app.song.form.SongForm;
+import com.koreait.exam.acc_app_2024_04.app.song.service.SongService;
 import com.koreait.exam.acc_app_2024_04.util.Ut;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 
-import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
 
 @Controller
 @RequiredArgsConstructor
-@RequestMapping("/member")
+@RequestMapping("/song")
+@Slf4j
 public class SongController {
-    private final MemberService memberService;
+    private final SongService songService;
 
-    @PreAuthorize("isAnonymous()")
-    @GetMapping("/login")
-    public String showLogin(HttpServletRequest request) {
-        String uri = request.getHeader("Referer");
-        if (uri != null && !uri.contains("/member/login")) {
-            request.getSession().setAttribute("prevPage", uri);
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/create")
+    public String showCreate() {
+        return "song/create";
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping("/create")
+    public String create(@AuthenticationPrincipal MemberContext memberContext, @Valid SongForm songForm) {
+        Member author = memberContext.getMember();
+        Song song = songService.create(author, songForm.getSubject(), songForm.getContent());
+        return "redirect:/song/" + song.getId() + "?msg=" + Ut.url.encode("%d번 음원이 생성되었습니다.".formatted(song.getId()));
+    }
+
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/{id}/modify")
+    public String showModify(@AuthenticationPrincipal MemberContext memberContext, @PathVariable long id, Model model) {
+        Song song = songService.findForPrintById(id).get();
+
+        Member actor = memberContext.getMember();
+
+        if (songService.actorCanModify(actor, song) == false) {
+            throw new ActorCanNotModifyException();
         }
 
-        return "member/login";
+        model.addAttribute("song", song);
+
+        return "song/modify";
     }
 
-    @PreAuthorize("isAnonymous()")
-    @GetMapping("/join")
-    public String showJoin() {
-        return "member/join";
+    @PreAuthorize("isAuthenticated()")
+    @PostMapping("/{id}/modify")
+    public String modify(@AuthenticationPrincipal MemberContext memberContext, @Valid SongForm songForm, @PathVariable long id) {
+        Song song = songService.findById(id).get();
+        Member actor = memberContext.getMember();
+
+        if (songService.actorCanModify(actor, song) == false) {
+            throw new ActorCanNotModifyException();
+        }
+
+        songService.modify(song, songForm.getSubject(), songForm.getContent());
+        return "redirect:/song/" + song.getId() + "?msg=" + Ut.url.encode("%d번 음원이 생성되었습니다.".formatted(song.getId()));
     }
 
-    @PreAuthorize("isAnonymous()")
-    @PostMapping("/join")
-    public String join(@Valid JoinForm joinForm) {
-        memberService.join(joinForm.getUsername(), joinForm.getPassword(), joinForm.getEmail());
+    @PreAuthorize("isAuthenticated()")
+    @GetMapping("/{id}")
+    public String detail(@AuthenticationPrincipal MemberContext memberContext, @PathVariable Long id, Model model) {
+        Song song = songService.findForPrintById(id).get();
 
-        return "redirect:/member/login?msg=" + Ut.url.encode("회원가입이 완료되었습니다.");
+        Member actor = memberContext.getMember();
+
+        if (songService.actorCanModify(actor, song) == false) {
+            throw new ActorCanNotSeeException();
+        }
+
+        model.addAttribute("song", song);
+
+        return "song/detail";
     }
 }
